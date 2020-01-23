@@ -29,20 +29,33 @@ import os
 
 
 class MyWebServer(socketserver.BaseRequestHandler):
+    #intialize instance variables.
     responseHeader = ""
-    content = ""
+    responseContent = ""
+    ctype = ""
+    root_path = os.getcwd()
+    request_path = ""
     statusCode = {  200:'OK',
+                    301:'MOVED PERMANENTLY',
                     404:'NOT FOUND',
+                    405:'METHOD NOT ALLOWED',
                     501:'NOT IMPLEMENTED'}
+    contentType = {'html':'Content-Type: text/html;charset=utf-8\r\n',
+                   'css':'Content-Type: text/css;charset=utf-8\r\n',
+                   'default': 'Content-Type: application/octet-stream;charset=utf-8\r\n'}
+    implementedMethods = ['GET']
 
+    #This method handles a simple HTTP request from connection at a time.
     def handle(self):
         print("Connected by", self.client_address)
         self.data = self.request.recv(1024).strip()
-        print ("Got a request of: %s\n" % self.data)
-        #why there is b'' request?
+        #print ("Got a request of: %s\n" % self.data)
+
+        #ignore empty message received.
         if not self.data:
             return
 
+        #parse request to get header infomation.
         try :
             header = self.data.decode('utf-8').split('\r\n')
             self.method, path, self.httpVersion = header[0].split(' ')
@@ -50,59 +63,100 @@ class MyWebServer(socketserver.BaseRequestHandler):
             print("Error: Unknown request.")
             return
         
-        #Base path <- /www/
+        #Base path <- /www
         baseDir = '/www'
 
+        #return index.html from directories.
         if path.endswith("/"):
             path += 'index.html'
-
+        #Parse url to get directory and filename, respectively.
         pathComponents = path.rsplit('/', 1)
-        path, content_file = baseDir + pathComponents[0], pathComponents[1]
+        directory, content_filename = baseDir + pathComponents[0], pathComponents[1]
         
-        #print('code = ' + method + ' path = "' + path + '" content_file = ' + content_file + ' version = ' + http_version)
-        if self.method == 'GET':
-            self.do_GET(path, content_file)
+        #print('code = ' + self.method + ' directory = "' + directory + '" content_filename = ' + content_filename + ' version = ' + self.httpVersion)
+        
+        if self.method in self.implementedMethods:
+            #handle a GET request
+            if self.method == 'GET':
+                self.do_GET(directory, content_filename)
         else:
-            #handle NOT IMPLEMENTED
-            pass
-    
-    def do_GET(self, path, content_file):
+            #handle unimplemented reuqests
+            response = self.get_response(405)
+            self.request.sendall(response.encode('utf-8'))
+
+    #This method handles a GET request. 
+    #It takes a directory of requested url and 
+    #a filename as arguments.
+    def do_GET(self, directory, content_filename):
         response = None
-        directory = '.' + path + '/' + content_file
-        
-        #ignore .ico request
-        if content_file.endswith('.ico'):
-            #print(".ico request ignored.")
-            return
-        try:
-            f = open(directory, 'r')
-            self.content = f.read()
-            f.close()
-            self.set_status_line(200)
-        except NotADirectoryError:
-            print("Not a directory.")
-            self.set_status_line(404)
-            #handle 404 NOT FOUND
+        self.request_path = '.' + directory + '/' + content_filename
 
-        if content_file.endswith('.html'):
-            self.responseHeader += 'Content-Type: text/html;charset=utf-8\r\n'
-        elif content_file.endswith('.css'):
-            self.responseHeader += 'Content-Type: text/css;charset=utf-8\r\n'
+        #check if reuqested url is under server working directory.
+        if not os.path.abspath(self.request_path).startswith(self.root_path):
+            #Bad request url. Set response code <- 404
+            code = 404
+        else:
+            try:
+                #Case 1: Read content successfully. Set response code <- 200
+                f = open(self.request_path, 'r')
+                self.responseContent = f.read()
+                f.close()
+                code = 200
+            #Case 2: File does not exist. Set response code <- 404
+            except FileNotFoundError:
+                print("File Not Found.")
+                code = 404
+            #Case 3: request url is a directory. Set response code <- 301
+            except IsADirectoryError:
+                print("Is A Directory.")
+                code = 301
         
-        self.responseHeader += 'Content-Length: ' + str(len(self.content)) + '\r\n'
-
-        response = self.statusLine + self.responseHeader + '\r\n' + self.content
+        response = self.get_response(code)
         if response:
             print("sending...\n" + response)
             self.request.sendall(response.encode('utf-8'))
         return
 
+    #This method takes an argument code and set the status line
+    #of response according to the code.
     def set_status_line(self, code):
         statusLinePattern = '{} {} {}\r\n'
         self.statusLine = statusLinePattern.format(
             self.httpVersion, str(code), self.statusCode[code])
+        return 
 
+    #This method takes an int code as argument.
+    #It constructs and returns a response according to the code.
+    def get_response(self, code):
+        response = None
+        #Set status line.
+        self.set_status_line(code)
 
+        #Set Content-Length
+        self.responseHeader += 'Content-Length: ' + \
+            str(len(self.responseContent)) + '\r\n'
+        
+        #Set Content-Type
+        if self.request_path.endswith('.html'):
+            self.responseHeader += self.contentType['html']
+        elif self.request_path.endswith('.css'):
+            self.responseHeader += self.contentType['css']
+        else:
+            self.responseHeader += self.contentType['default']  #maybe something else.
+
+        #set client error body.
+        if 400 <= code <= 499:
+            self.responseContent = ""
+        #set redirection body.
+        elif code == 301:
+            self.responseHeader += 'Location: ' + \
+                self.request_path[5:] + '/\r\n'
+        
+        response = self.statusLine + self.responseHeader + '\r\n' + self.responseContent
+
+        return response
+
+            
 if __name__ == "__main__":
     HOST, PORT = "localhost", 8080
 
