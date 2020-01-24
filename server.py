@@ -60,7 +60,7 @@ class MyWebServer(socketserver.BaseRequestHandler):
             header = self.data.decode('utf-8').split('\r\n')
             self.method, path, self.httpVersion = header[0].split(' ')
         except:
-            print("Error: Unknown request.")
+            #print("Error: Unknown request.")
             return
         
         #Base path <- /www
@@ -104,16 +104,16 @@ class MyWebServer(socketserver.BaseRequestHandler):
                 code = 200
             #Case 2: File does not exist. Set response code <- 404
             except FileNotFoundError:
-                print("File Not Found.")
+                #print("File Not Found.")
                 code = 404
             #Case 3: request url is a directory. Set response code <- 301
             except IsADirectoryError:
-                print("Is A Directory.")
+                #print("Is A Directory.")
                 code = 301
         
         response = self.get_response(code)
         if response:
-            print("sending...\n" + response)
+            #print("sending...\n" + response)
             self.request.sendall(response.encode('utf-8'))
         return
 
@@ -151,7 +151,7 @@ class MyWebServer(socketserver.BaseRequestHandler):
         elif code == 301:
             self.responseHeader += 'Location: ' + \
                 self.request_path[5:] + '/\r\n'
-        
+
         response = self.statusLine + self.responseHeader + '\r\n' + self.responseContent
 
         return response
